@@ -156,10 +156,10 @@ class MainWidget(QtWidgets.QWidget):
                 self.setLayout(layout)
 '''
 
-class FrameWidget(QWidget):        
+class Example(QWidget):        
     def __init__(self):
-        super(FrameWidget, self).__init__()    
-        self.image = QtGui.QImage("001.png")
+        super(Example, self).__init__()    
+
         self.initUI()
 
     def mousePressEvent(self, QMouseEvent):
@@ -175,17 +175,24 @@ class FrameWidget(QWidget):
         #qbtn = QPushButton('Quit', self)
         #qbtn.resize(qbtn.sizeHint())
         #qbtn.move(50, 50)       
-        self.reader = VideoReader(file_path)
-        self.faces = DrawFace(data_path)
-        
+        reader = VideoReader(file_path)
+        painter = DrawFace(data_path)
+        self.setGeometry(0, 0, 1024, 768)
+        self.setWindowTitle('Quit button')    
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.FramelessWindowHint)
 
         #self.statusBar().showMessage('This is a status bar') 
 
-        #label = QLabel(self)
+        label = QLabel(self)
 
 
-        
+        frame_num = 0
+        frame = reader.get_frame(frame_num)
+        painter.draw_faces(frame, frame_num)
+
+        image = self.get_qimage(frame)
+
+        pixmap = QPixmap(QPixmap.fromImage(image))
         
         '''
         # create painter instance with pixmap
@@ -203,64 +210,40 @@ class FrameWidget(QWidget):
         #self.ui.label_imageDisplay.setPixmap(pixmap)
         #self.ui.label_imageDisplay.show()
         '''
-        #label.setPixmap(pixmap)
-        #self.resize(pixmap.width(),pixmap.height())
-        #label.move(0, 0)
-        #self.show()
+        label.setPixmap(pixmap)
+        self.resize(pixmap.width(),pixmap.height())
+        label.move(0, 0)
+        self.show()
 
-    def image_data_slot(self, frame_num):
-        frame = self.reader.get_frame(frame_num)
-        self.faces.draw_faces(frame, frame_num)
+    def image_data_slot(self, image_data):
+            faces = self.detect_faces(image_data)
+            for (x, y, w, h) in faces:
+                    cv2.rectangle(image_data, (x, y), (x+w, y+h), self._red, self._width)
 
-        self.image = self.get_qimage(frame)
+            self.image = self.get_qimage(image_data)
+            if self.image.size() != self.size():
+                    self.setFixedSize(self.image.size())
 
-        #pixmap = QPixmap(QPixmap.fromImage(image))
-        #if self.image.size() != self.size():
-        #        self.setFixedSize(self.image.size())
-
-        self.update()
+            self.update()
 
     def get_qimage(self, image: np.ndarray):
-        height, width, colors = image.shape
-        bytesPerLine = 3 * width
-        QImage = QtGui.QImage
+            height, width, colors = image.shape
+            bytesPerLine = 3 * width
+            QImage = QtGui.QImage
 
-        image = QImage(image.data, width, height, bytesPerLine, QImage.Format_RGB888)
+            image = QImage(image.data, width, height, bytesPerLine, QImage.Format_RGB888)
 
-        image = image.rgbSwapped()
-        return image
+            image = image.rgbSwapped()
+            return image
 
-    
-    def paintEvent(self, event):
-        painter = QtGui.QPainter(self)
-        painter.drawImage(0, 0, self.image)
-        self.image = QtGui.QImage()
-
-
-class MainWidget(QtWidgets.QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.frame_widget = FrameWidget()
-        self.setGeometry(0, 0, 1024, 768)
-        self.setWindowTitle('Quit button')    
-        self.run_button = QtWidgets.QPushButton('Start')
-
-        # Connect the image data signal and slot together
-        image_data_slot = self.frame_widget.image_data_slot(0)
-
-        # Create and set the layout
-        layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(self.frame_widget)
-        layout.addWidget(self.run_button)
-
-        self.setLayout(layout)
+    def test(self):
+      print("test")
 
 def main():        
         app = QApplication(sys.argv)
         main_window = QtWidgets.QMainWindow()
-        main_widget = MainWidget()
+        main_widget = Example()
         main_window.setCentralWidget(main_widget)
-        main_window.resize(1024, 768)
         main_window.show()
         sys.exit(app.exec_())
 
