@@ -15,7 +15,7 @@ file_path = "./video1.mp4"
 out_path = "./outpy3.avi"
 out_size = (200, 200)
 data_path = "./out2.json"
-overlap_percent = 0.8
+overlap_percent = 0.7
 
 class VideoReader:
     def __init__(self, file_path):
@@ -44,20 +44,22 @@ class DrawFace:
         while self.data.get(str(index)) is None and index > 0:
             index -= 1
         faces = self.data[str(index)]
-
         for idx, box in faces.items(): # for box in faces:
+            if idx == "correct":
+                continue
             L, T, R, B = box['box']
             cv2.rectangle(frame, (L, T), (R, B), (0,155,255), 2)
             cv2.putText(frame,str(idx),(L, T), self.font, 1,(255,255,255),2,cv2.LINE_AA)
         if faces.get("correct") is not None:
-            L, T, R, B = face['box']
+            box = faces[faces.get("correct")]
+            L, T, R, B = box['box']
             old_frame = frame.copy()
             cv2.rectangle(frame, (L, T), (R, B), (0,155,255), -1) # -1 to fill the rectangle
             frame = cv2.addWeighted(old_frame,0.7,frame,0.3,0, frame)
         return index
 
     def select_face(self, current_frame, face_index):
-        self.data[str(current_frame)]["correct"] = face_index
+        self.data[str(current_frame)]["correct"] = str(face_index)
         face = self.data[str(current_frame)][str(face_index)]
         return face
 
@@ -89,8 +91,8 @@ class DrawFace:
         top = max(r1_T, r2_T)
         if left < right and bottom > top:
             intersection = self.get_area(left, right, bottom, top)
-            r1_a = getArea(r1_L, r1_R, r1_B, r1_T)
-            r2_a = getArea(r2_L, r2_R, r2_B, r2_T)
+            r1_a = self.get_area(r1_L, r1_R, r1_B, r1_T)
+            r2_a = self.get_area(r2_L, r2_R, r2_B, r2_T)
             overlap = intersection / (r1_a + r2_a - intersection)
         else:
             overlap = 0
@@ -241,9 +243,10 @@ class FrameWidget(QWidget):
     def select_face(self, face_index):
         prev_face = self.faces.select_face(self.current_frame, face_index)
         self.faces.generalize_faces(self.current_frame + 1, prev_face)
-        self.frame_widget.image_data_slot(self.current_frame)
+        self.image_data_slot(self.current_frame)
 
     def paintEvent(self, event):
+        print(self.current_frame)
         painter = QtGui.QPainter(self)
         painter.drawImage(0, 0, self.image)
         # self.image = QtGui.QImage()
@@ -255,6 +258,7 @@ class BarWidget(QWidget):
         self.frame_widget = frame_widget
         self.frame_num = frame_num
     #     self.initUI()
+        
         
         
     # def initUI(self):      
@@ -282,7 +286,20 @@ class BarWidget(QWidget):
         self.drawRectangles(qp)
         qp.end()
 
-        
+    def calculateRectangle(self):
+        start = 0
+        end = 0
+        clips = []
+        for idx, value in self.frame_widget.faces.data.items():
+            if value.get("correct") is not None:
+                end = int(idx)
+            else:
+                if end > start:
+                    clips.append((start, end))
+                start = 1 + int(idx)
+                end = start
+        self.clips = clips
+       
     def drawRectangles(self, qp):
       
         col = QColor(0, 0, 0)
@@ -291,6 +308,13 @@ class BarWidget(QWidget):
 
         qp.setBrush(QColor(255, 255, 255))
         qp.drawRect(0, 0, self.width(), 60)
+        self.calculateRectangle()
+        if self.clips is not None:
+            for idx, (start, end) in enumerate(self.clips):
+                qp.setBrush(QColor(255, 0, 0))
+                print(str(start * self.width() / self.frame_num))
+                print(str((end-start) * self.width() / self.frame_num))
+                qp.drawRect(start * self.width() / self.frame_num, 0, (end-start) * self.width() / self.frame_num, 60)
 
         # qp.setBrush(QColor(25, 0, 90, 200))
         # qp.drawRect(250, 15, 90, 60)
@@ -321,6 +345,7 @@ class MainWidget(QtWidgets.QWidget):
             #here accept the event and do something
             print(event.key()-48)
             self.frame_widget.select_face(event.key()-48)
+            self.bar.update()
             event.accept()
         else:
             event.ignore()
