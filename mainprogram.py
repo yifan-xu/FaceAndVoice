@@ -15,6 +15,7 @@ file_path = "./video1.mp4"
 out_path = "./outpy3.avi"
 out_size = (200, 200)
 data_path = "./out2.json"
+overlap_percent = 0.8
 
 class VideoReader:
     def __init__(self, file_path):
@@ -33,25 +34,51 @@ class VideoWriter:
         self.out = cv2.VideoWriter(file_path, cv2.VideoWriter_fourcc('M','J','P','G'), 1, out_size)
 
 class DrawFace:
-    def __init__(self, data_path):
+    def __init__(self, data_path, frame_num, overlap_percent):
         self.data = json.load(open(data_path,"r"))
         self.font = cv2.FONT_HERSHEY_SIMPLEX
+        self.frame_num = frame_num
+        self.overlap_percent = overlap_percent
 
     def draw_faces(self, frame, index):
-        while self.data.get(str(index)) is None and index >= 0:
+        while self.data.get(str(index)) is None and index > 0:
             index -= 1
         faces = self.data[str(index)]
+
         for idx, box in faces.items(): # for box in faces:
             L, T, R, B = box['box']
             cv2.rectangle(frame, (L, T), (R, B), (0,155,255), 2)
             cv2.putText(frame,str(idx),(L, T), self.font, 1,(255,255,255),2,cv2.LINE_AA)
+        if faces.get("correct") is not None:
+            L, T, R, B = face['box']
+            old_frame = frame.copy()
+            cv2.rectangle(frame, (L, T), (R, B), (0,155,255), -1) # -1 to fill the rectangle
+            frame = cv2.addWeighted(old_frame,0.7,frame,0.3,0, frame)
+        return index
 
-    def generalize_faces(self, box, prev_face=None):
-        if prev_face is not None:
-            new_overlap = self.get_overlap(box, prev_face)
-            if new_overlap > overlap:
-                overlap = new_overlap
-                max_idx = idx
+    def select_face(self, current_frame, face_index):
+        self.data[str(current_frame)]["correct"] = face_index
+        face = self.data[str(current_frame)][str(face_index)]
+        return face
+
+    def generalize_faces(self, current_frame, prev_face):
+        while(1):
+            while self.data.get(str(current_frame)) is None and current_frame < self.frame_num:
+                current_frame += 1
+            faces = self.data.get(str(current_frame))
+            if faces is None:
+                break
+            overlap = 0
+            for idx, box in faces.items():
+                new_overlap = self.get_overlap(box, prev_face)
+                if new_overlap > overlap:
+                    overlap = new_overlap
+                    max_idx = idx
+            if overlap < self.overlap_percent:
+                break
+            prev_face = faces[max_idx]
+            self.select_face(current_frame, max_idx)
+            current_frame += 1
 
     def get_overlap(self, r1, r2):
         r1_L, r1_T, r1_R, r1_B = r1['box']
@@ -153,14 +180,17 @@ class FrameWidget(QWidget):
         cursor =QCursor()
         #self.statusBar().showMessage('(' + str(QMouseEvent.x()) + ', '+  str(QMouseEvent.y()) + ')')
         print('(', QMouseEvent.x(), ', ', QMouseEvent.y(), ')')
-        print(cursor.pos())        
+        print(cursor.pos())   
+
+  
 
     def initUI(self):                           
         #qbtn = QPushButton('Quit', self)
         #qbtn.resize(qbtn.sizeHint())
         #qbtn.move(50, 50)       
         self.reader = VideoReader(file_path)
-        self.faces = DrawFace(data_path)
+        self.faces = DrawFace(data_path, self.reader.frame_num, overlap_percent)
+        self.current_frame = 0
 
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.FramelessWindowHint)
 
@@ -188,8 +218,8 @@ class FrameWidget(QWidget):
 
     def image_data_slot(self, frame_num):
         frame = self.reader.get_frame(frame_num)
-        self.faces.draw_faces(frame, frame_num)
-
+        index = self.faces.draw_faces(frame, frame_num)
+        self.current_frame = index
         self.image = self.get_qimage(frame)
 
         #pixmap = QPixmap(QPixmap.fromImage(image))
@@ -208,6 +238,10 @@ class FrameWidget(QWidget):
         image = image.rgbSwapped()
         return image
 
+    def select_face(self, face_index):
+        prev_face = self.faces.select_face(self.current_frame, face_index)
+        self.faces.generalize_faces(self.current_frame + 1, prev_face)
+        self.frame_widget.image_data_slot(self.current_frame)
 
     def paintEvent(self, event):
         painter = QtGui.QPainter(self)
@@ -269,6 +303,7 @@ class MainWidget(QtWidgets.QWidget):
         self.setWindowTitle('Quit button')    
         self.run_button = QtWidgets.QPushButton('Start')
         self.bar = BarWidget(self.frame_widget, self.frame_widget.reader.frame_num)
+        self.wait_key = True
 
         # Connect the image data signal and slot together
         image_data_slot = self.frame_widget.image_data_slot(0)
@@ -280,6 +315,15 @@ class MainWidget(QtWidgets.QWidget):
         layout.addWidget(self.bar)
 
         self.setLayout(layout)
+
+    def keyPressEvent(self, event):
+        if type(event) == QtGui.QKeyEvent and self.wait_key:
+            #here accept the event and do something
+            print(event.key()-48)
+            self.frame_widget.select_face(event.key()-48)
+            event.accept()
+        else:
+            event.ignore()
 
 def main():        
         app = QApplication(sys.argv)
